@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         크랙 드래그 북마크 & 형광펜 (모바일 최적화)
 // @namespace    https://crack.wrtn.ai/
-// @version      2.0.0
-// @description  모바일 환경 최적화, 스마트 색상 필터, 다중 삭제(✄) 기능 탑재
+// @version      2.1.0
+// @description  모바일 환경 최적화, 스마트 색상 필터, 다중 삭제(✄), 전체선택 및 완벽한 UI 통일성 적용
 // @author       User
 // @match        https://crack.wrtn.ai/*
 // @grant        GM_addStyle
@@ -22,17 +22,16 @@
     const ICON_EDIT = '✎';
 
     let currentPath = window.location.pathname;
-    
-    // 텍스트 선택 실시간 감지 (모바일 환경을 위함)
     let realtimeSelectionText = "";
     let savedSelectionText = "";
     
-    // 모달 상태 변수
+    // 모달 및 데이터 상태 변수
     let isModalOpen = false;
     let currentTab = 'current';
     let currentFolderId = 'default';
     let searchQuery = '';
     let activeColorFilter = null;
+    let currentFilteredBms = []; // 현재 필터링되어 화면에 보이는 북마크 목록 (전체선택용)
     
     // 다중 삭제 모드 상태
     let isDeleteMode = false;
@@ -75,7 +74,7 @@
     }
 
     // ==========================================
-    // 2. CSS 스타일 주입
+    // 2. CSS 스타일 주입 (UI 간격 및 높이 완벽 통일)
     // ==========================================
     function injectStyles() {
         if (document.getElementById('crack-bm-css')) return;
@@ -101,31 +100,40 @@
             .cbm-icon-btn { background: none; border: none; font-size: 14px; cursor: pointer; padding: 4px 8px; border-radius: 6px; color: #666; transition: 0.2s; font-weight: bold; }
             .cbm-icon-btn:hover { background: #eee; color: #222; }
 
-            .cbm-tabs-container { display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #eee; margin-bottom: 12px; }
-            .cbm-tabs { display: flex; gap: 12px; margin-bottom: -2px; }
-            .cbm-tab { background: none; border: none; font-size: 14px; font-weight: 600; color: #888; padding: 8px 4px; cursor: pointer; border-bottom: 2px solid transparent; }
+            /* 간격 통일: 컨테이너들 하단 여백을 모두 12px로 통일 */
+            .cbm-tabs-container { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #eee; padding-bottom: 12px; margin-bottom: 12px; }
+            .cbm-tabs { display: flex; gap: 12px; margin-bottom: -13px; /* border-bottom 에 걸치기 위함 */ }
+            .cbm-tab { background: none; border: none; font-size: 14px; font-weight: 600; color: #888; padding: 0 4px 12px 4px; cursor: pointer; border-bottom: 2px solid transparent; }
             .cbm-tab.active { color: ${ACCENT_COLOR}; border-bottom-color: ${ACCENT_COLOR}; }
 
-            .cbm-color-palette { display: flex; gap: 8px; align-items: center; margin-bottom: 6px; }
+            .cbm-color-palette { display: flex; gap: 8px; align-items: center; }
             .cbm-pal-btn { width: 22px; height: 22px; border-radius: 50%; cursor: pointer; border: 2px solid transparent; transition: 0.2s; box-shadow: 0 1px 3px rgba(0,0,0,0.2); }
             .cbm-pal-btn:hover { transform: scale(1.1); }
             .cbm-pal-btn.active { border-color: #333; transform: scale(1.15); }
 
-            .cbm-folders { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 8px; margin-bottom: 12px; }
+            .cbm-folders { display: flex; gap: 6px; align-items: center; overflow-x: auto; margin-bottom: 12px; padding-bottom: 4px; }
             .cbm-folders::-webkit-scrollbar { height: 4px; }
             .cbm-folders::-webkit-scrollbar-thumb { background: #ccc; border-radius: 4px; }
-            .cbm-ftab { background: #f0f0f0; border: 1px solid #ddd; padding: 6px 12px; border-radius: 20px; font-size: 12px; font-weight: 600; color: #555; cursor: pointer; white-space: nowrap; }
+            
+            /* 폴더 탭 & 추가 버튼 높이 28px 통일 */
+            .cbm-ftab { height: 28px; background: #f0f0f0; border: 1px solid #ddd; padding: 0 12px; border-radius: 14px; font-size: 12px; font-weight: 600; color: #555; cursor: pointer; white-space: nowrap; display: inline-flex; align-items: center; box-sizing: border-box; }
             .cbm-ftab.active { background: ${ACCENT_COLOR}; color: #fff; border-color: ${ACCENT_COLOR}; }
-            .cbm-fadd { background: none; border: 1px dashed #aaa; border-radius: 50%; width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; cursor: pointer; color: #666; font-weight: bold; }
+            .cbm-fadd { background: none; border: 1px dashed #aaa; border-radius: 50%; width: 28px; height: 28px; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; color: #666; font-weight: bold; box-sizing: border-box; margin: 0; padding: 0; }
 
+            /* 검색창 및 삭제창 높이 36px 통일 */
             .cbm-search-row { display: flex; gap: 8px; margin-bottom: 12px; align-items: stretch; }
-            .cbm-search { flex: 1; padding: 10px 12px; border: 1px solid #ddd !important; border-radius: 8px; font-size: 13px; box-sizing: border-box; background: #fff !important; color: #222 !important; margin: 0 !important; }
+            .cbm-search { flex: 1; padding: 8px 12px; min-height: 36px; border: 1px solid #ddd !important; border-radius: 8px; font-size: 13px; box-sizing: border-box; background: #fff !important; color: #222 !important; margin: 0 !important; }
             .cbm-search:focus { outline: 1px solid ${ACCENT_COLOR}; }
             
-            #cbm-toggle-del { display: flex; align-items: center; justify-content: center; font-size: 18px; border: 1px solid #ddd; border-radius: 8px; height: auto; }
+            #cbm-toggle-del { display: flex; align-items: center; justify-content: center; font-size: 18px; border: 1px solid #ddd; border-radius: 8px; min-height: 36px; padding: 0 12px; cursor: pointer; background: #fff;}
             #cbm-toggle-del.active { background: #e74c3c; color: white; border-color: #e74c3c; }
 
-            #cbm-delete-actions { display: none; justify-content: space-between; align-items: center; margin-bottom: 12px; background: rgba(231,76,60,0.08); padding: 8px 12px; border-radius: 8px; border: 1px solid rgba(231,76,60,0.3); }
+            #cbm-delete-actions { display: none; justify-content: space-between; align-items: center; margin-bottom: 12px; background: rgba(231,76,60,0.08); padding: 0 12px; border-radius: 8px; border: 1px solid rgba(231,76,60,0.3); min-height: 36px; box-sizing: border-box; }
+            #cbm-del-count { color: #e74c3c; font-weight: bold; font-size: 13px; margin-top: 1px; }
+            #cbm-select-all { background: none; border: none; cursor: pointer; font-size: 16px; padding: 0; margin-right: 6px; color: #e74c3c; display: flex; align-items: center; justify-content: center; width: 16px; height: 16px; }
+            
+            /* 컴팩트한 삭제/취소 버튼 */
+            .cbm-del-btn-sm { font-size: 12px; padding: 0 10px; border-radius: 4px; border: none; cursor: pointer; height: 24px; color: white; display: inline-flex; align-items: center; justify-content: center; font-weight: bold; }
 
             .cbm-list { flex: 1; overflow-y: auto; padding-right: 4px; }
             .cbm-item { background: #f9f9f9 !important; border: 1px solid #eee !important; border-radius: 8px; padding: 12px; margin-bottom: 10px; cursor: pointer; transition: 0.2s; position: relative; }
@@ -145,13 +153,15 @@
             /* 다크모드 자동 적용 */
             body[data-theme="dark"] .crack-bm-modal { background: #242321 !important; color: #F0EFEB !important; }
             body[data-theme="dark"] .cbm-header h3 { color: #F0EFEB !important; }
-            body[data-theme="dark"] .cbm-icon-btn { color: #aaa; border-color: #444; }
+            body[data-theme="dark"] .cbm-icon-btn { color: #aaa; }
             body[data-theme="dark"] .cbm-icon-btn:hover { background: #333; color: #fff; }
             body[data-theme="dark"] .cbm-tabs-container { border-bottom-color: #444; }
             body[data-theme="dark"] .cbm-pal-btn.active { border-color: #fff; }
             body[data-theme="dark"] .cbm-ftab { background: #141413; border-color: #42413D; color: #ccc; }
             body[data-theme="dark"] .cbm-ftab.active { background: ${ACCENT_COLOR}; color: #fff; border-color: ${ACCENT_COLOR}; }
             body[data-theme="dark"] .cbm-search { background: #141413 !important; border-color: #42413D !important; color: #F0EFEB !important; }
+            body[data-theme="dark"] #cbm-toggle-del { background: #141413; border-color: #42413D; color: #ccc; }
+            body[data-theme="dark"] #cbm-toggle-del.active { background: #e74c3c; color: white; border-color: #e74c3c; }
             body[data-theme="dark"] .cbm-item { background: #1a1918 !important; border-color: #42413D !important; }
             body[data-theme="dark"] .cbm-item.selected { background: rgba(231,76,60,0.15) !important; border-color: #e74c3c !important; }
             body[data-theme="dark"] .cbm-item-title { color: #F0EFEB !important; }
@@ -186,7 +196,7 @@
         btn.innerHTML = `💡 북마크`;
         btn.onclick = (e) => { 
             e.preventDefault(); e.stopPropagation(); 
-            savedSelectionText = realtimeSelectionText; // 버튼 누를 때의 선택 텍스트 저장
+            savedSelectionText = realtimeSelectionText;
             openModal(); 
         };
         
@@ -241,14 +251,17 @@
                 
                 <div class="cbm-search-row">
                     <input type="text" class="cbm-search" id="cbm-search-input" placeholder="북마크 이름/내용 검색...">
-                    <button class="cbm-icon-btn" id="cbm-toggle-del" title="다중 삭제 모드">✄</button>
+                    <button id="cbm-toggle-del" title="다중 삭제 모드">✄</button>
                 </div>
                 
                 <div id="cbm-delete-actions">
-                    <span id="cbm-del-count" style="color:#e74c3c; font-weight:bold; font-size:13px;">0개 선택됨</span>
+                    <div style="display:flex; align-items:center;">
+                        <button id="cbm-select-all" title="현재 목록 전체 선택">□</button>
+                        <span id="cbm-del-count">0개 선택됨</span>
+                    </div>
                     <div style="display:flex; gap:8px;">
-                        <button id="cbm-del-confirm" style="background:#e74c3c; color:white; border:none; padding:4px 12px; border-radius:4px; cursor:pointer; font-weight:bold;">삭제</button>
-                        <button id="cbm-del-cancel" style="background:#888; color:white; border:none; padding:4px 12px; border-radius:4px; cursor:pointer;">취소</button>
+                        <button id="cbm-del-confirm" class="cbm-del-btn-sm" style="background:#e74c3c;" title="삭제">✔</button>
+                        <button id="cbm-del-cancel" class="cbm-del-btn-sm" style="background:#888;" title="취소">✘</button>
                     </div>
                 </div>
                 
@@ -257,7 +270,6 @@
         `;
         document.body.appendChild(overlay);
 
-        // 이벤트 연결
         document.getElementById('cbm-close').onclick = closeModal;
         overlay.onclick = (e) => { if(e.target === overlay) closeModal(); };
         
@@ -268,19 +280,33 @@
                 tab.classList.add('active');
                 currentTab = tab.dataset.tab;
                 searchQuery = ''; document.getElementById('cbm-search-input').value = '';
+                if(isDeleteMode) selectedForDelete.clear();
                 renderBookmarkList();
             };
         });
 
         document.getElementById('cbm-search-input').oninput = (e) => {
-            searchQuery = e.target.value.trim().toLowerCase(); renderBookmarkList();
+            searchQuery = e.target.value.trim().toLowerCase(); 
+            if(isDeleteMode) selectedForDelete.clear();
+            renderBookmarkList();
         };
 
-        // 삭제 모드 토글
+        // 다중 삭제 토글
         document.getElementById('cbm-toggle-del').onclick = () => {
             isDeleteMode = !isDeleteMode;
             selectedForDelete.clear();
             document.getElementById('cbm-toggle-del').classList.toggle('active', isDeleteMode);
+            renderBookmarkList();
+        };
+
+        // 전체 선택 버튼 로직
+        document.getElementById('cbm-select-all').onclick = () => {
+            if (currentFilteredBms.length === 0) return;
+            if (selectedForDelete.size === currentFilteredBms.length) {
+                selectedForDelete.clear(); // 모두 선택된 상태면 전부 해제
+            } else {
+                currentFilteredBms.forEach(b => selectedForDelete.add(b.id)); // 아니면 전부 선택
+            }
             renderBookmarkList();
         };
 
@@ -319,12 +345,13 @@
                 if (savedSelectionText) {
                     addBookmarkDirect(savedSelectionText, color);
                     savedSelectionText = ""; 
-                    window.getSelection().removeAllRanges(); // 텍스트 선택 풀기
+                    window.getSelection().removeAllRanges();
                     renderBookmarkList();
                 } else {
                     if (activeColorFilter === color) activeColorFilter = null;
                     else activeColorFilter = color;
                     updatePaletteUI();
+                    if(isDeleteMode) selectedForDelete.clear();
                     renderBookmarkList();
                 }
             };
@@ -340,7 +367,6 @@
             const a = document.createElement('a'); a.href = url; a.download = 'crack-bookmarks-backup.json'; a.click();
             URL.revokeObjectURL(url);
         };
-        
         document.getElementById('cbm-import').onclick = () => {
             const input = document.createElement('input'); input.type = 'file'; input.accept = '.json';
             input.onchange = (e) => {
@@ -372,14 +398,13 @@
     }
 
     function closeModal() {
-        isModalOpen = false;
-        savedSelectionText = ""; // 닫을 때 초기화
+        isModalOpen = false; savedSelectionText = "";
         const o = document.getElementById('cbm-overlay');
         if (o) o.remove();
     }
 
     // ==========================================
-    // 4. 리스트 렌더링 및 기능 (수정됨)
+    // 4. 리스트 렌더링
     // ==========================================
     function renderFolderTabs() {
         const container = document.getElementById('cbm-folders-container');
@@ -391,7 +416,7 @@
         `).join('') + `<button class="cbm-fadd" id="cbm-fadd" title="폴더 추가">+</button>`;
 
         container.querySelectorAll('.cbm-ftab').forEach(btn => {
-            btn.onclick = () => { currentFolderId = btn.dataset.fid; renderFolderTabs(); renderBookmarkList(); };
+            btn.onclick = () => { currentFolderId = btn.dataset.fid; if(isDeleteMode) selectedForDelete.clear(); renderFolderTabs(); renderBookmarkList(); };
             btn.oncontextmenu = (e) => {
                 e.preventDefault();
                 if(btn.dataset.fid === 'default') return alert("기본 폴더는 수정할 수 없습니다.");
@@ -412,9 +437,7 @@
 
         document.getElementById('cbm-fadd').onclick = () => {
             const name = prompt("새 폴더 이름 입력");
-            if(name && name.trim()) {
-                const f = getFolders(); f.push({ id: 'f' + Date.now(), name: name.trim() }); saveFolders(f);
-            }
+            if(name && name.trim()) { const f = getFolders(); f.push({ id: 'f' + Date.now(), name: name.trim() }); saveFolders(f); }
         };
     }
 
@@ -432,10 +455,20 @@
         if (currentTab === 'current') bms = bms.filter(b => b.chatId === cid);
         if (searchQuery) bms = bms.filter(b => (b.label && b.label.toLowerCase().includes(searchQuery)) || b.text.toLowerCase().includes(searchQuery));
         else bms = bms.filter(b => (b.folderId || 'default') === currentFolderId);
-        
         if (activeColorFilter) bms = bms.filter(b => b.color === activeColorFilter);
 
         bms.sort((a, b) => b.timestamp - a.timestamp);
+        currentFilteredBms = bms; // 전체 선택을 위한 글로벌 변수 저장
+
+        // 전체선택 아이콘 상태 업데이트
+        const selectAllBtn = document.getElementById('cbm-select-all');
+        if (selectAllBtn) {
+            if (currentFilteredBms.length > 0 && selectedForDelete.size === currentFilteredBms.length) {
+                selectAllBtn.textContent = '■';
+            } else {
+                selectAllBtn.textContent = '□';
+            }
+        }
 
         if (bms.length === 0) {
             container.innerHTML = `<div class="cbm-empty">${searchQuery || activeColorFilter ? '결과가 없습니다.' : '이 폴더에 북마크가 없습니다.<br><br><b>💡 추가 방법:</b><br>텍스트를 선택한 후, 헤더의 [북마크] 버튼을 누르고<br>상단의 색상 동그라미를 누르면 저장됩니다.'}</div>`;
@@ -468,7 +501,6 @@
             item.onclick = (e) => {
                 if (e.target.closest('button') || e.target.closest('select')) return;
                 const id = item.dataset.id;
-                
                 if (isDeleteMode) {
                     if (selectedForDelete.has(id)) selectedForDelete.delete(id);
                     else selectedForDelete.add(id);
